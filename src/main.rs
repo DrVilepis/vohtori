@@ -3,16 +3,17 @@
 #[cfg(test)]
 mod tests;
 
-use std::io::Read;
-
 mod lexer;
+mod library;
 mod parser;
 mod runtime;
 
+use std::{fs::File, io::{BufReader, Read}, path::PathBuf};
+
 use lexer::SourceCursor;
 
-use parser::{Parser, TokenStream};
-use runtime::Value;
+use parser::{Parser, Number};
+use runtime::{Value, Array};
 
 use crate::runtime::Runtime;
 
@@ -22,45 +23,71 @@ use clap::Parser as ClapParser;
 #[command()]
 struct Args {
     #[arg(short, long)]
-    lexer: bool,
+    interactive: bool,
 
     #[arg(short, long)]
     parser: bool,
+    input: Option<PathBuf>,
 }
 
 fn main() {
     let args = Args::parse();
 
-    let mut stdin = std::io::stdin();
-    let mut input = String::new();
-    stdin.read_to_string(&mut input).unwrap();
-
-    let source = SourceCursor::new(&input);
-
-    if args.lexer {
-        eprintln!("LEXER OUTPUT:");
-        let mut source = source.clone();
-        while let Some(token) = source.advance_token() {
-            eprintln!("{:#?}", token);
-        }
-        eprintln!();
-    }
-
-    let mut parser = Parser::new(TokenStream::new(source));
+    let mut stdin = std::io::stdin().lock();
 
     let mut runtime = Runtime::new();
 
-    let expr = parser.parse_expr();
+    if args.interactive {
+        let source = SourceCursor::new(stdin);
 
-    if args.parser {
-        eprintln!("PARSER OUTPUT:");
-        eprintln!("{:#?}", expr);
-        eprintln!();
+        let mut parser = Parser::new(source);
+
+        while let Some(expr) = parser.parse_expr() {
+            if args.parser {
+                eprintln!("PARSER OUTPUT:");
+                eprintln!("{:#?}", expr);
+                eprintln!();
+            }
+
+            match expr {
+                Ok(expr) => {
+                    let value = runtime.eval_expr(expr, None);
+
+                    print!("  = ");
+                    pprint(&value);
+                    println!();
+                }
+                Err(e) => {
+                    println!("{:?}", e);
+                }
+            }
+        }
+    } else if let Some(path) = args.input {
+        let file = File::open(path).unwrap();
+        let source = SourceCursor::new(BufReader::new(file));
+
+        let mut parser = Parser::new(source);
+
+        let mut input = String::new();
+        stdin.read_to_string(&mut input).unwrap();
+
+        runtime.push_var("stdin", parse_list(input));
+
+
+        while let Some(expr) = parser.parse_expr() {
+            match expr {
+                Ok(expr) => {
+                    let value = runtime.eval_expr(expr, None);
+
+                    pprint(&value);
+                    println!();
+                }
+                Err(e) => {
+                    println!("{:?}", e);
+                }
+            }
+        }
     }
-
-    let value = runtime.eval_expr(expr);
-    pprint(&value);
-    println!("");
 }
 
 fn pprint(value: &Value) {
@@ -70,14 +97,27 @@ fn pprint(value: &Value) {
 
             let len = array.value.len();
 
-            for i in 0..(len - 1) {
-                pprint(&array.value[i]);
-                print!(" ");
+            if len > 0 {
+                for i in 0..(len - 1) {
+                    pprint(&array.value[i]);
+                    print!(" ");
+                }
+
+                pprint(&array.value[len - 1]);
             }
-            pprint(&array.value[len - 1]);
 
             print!("]");
         }
         Value::Number(number) => print!("{}", number.value),
     }
+}
+
+fn parse_list(input: String) -> Value {
+    Value::Array(Array {
+        value: input.lines().map(|l| {
+            Value::Array(Array {
+                value: l.split_whitespace().map(|v| Value::Number(Number {value: v.parse().unwrap() })).collect(),
+            })
+        }).collect(),
+    })
 }

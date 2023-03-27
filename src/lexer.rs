@@ -1,37 +1,11 @@
-use std::str::Chars;
+use std::{
+    io::{BufRead, Lines, Stdin, StdinLock},
+    str::Chars,
+};
 
 static SYNTAX_TOKENS: &str = "{}[]();:$";
 
 static OPERATOR_CHARS: &str = "+-*/=@&%^.#|&";
-
-#[derive(Clone)]
-pub struct SourceCursor<'a> {
-    chars: Chars<'a>,
-}
-
-impl<'a> SourceCursor<'a> {
-    fn consume(&mut self) -> Option<char> {
-        self.chars.next()
-    }
-
-    fn first(&self) -> Option<char> {
-        self.chars.clone().next()
-    }
-
-    fn second(&self) -> Option<char> {
-        let mut chars = self.chars.clone();
-
-        chars.next();
-
-        chars.next()
-    }
-
-    pub fn new(input: &'a str) -> SourceCursor<'a> {
-        SourceCursor {
-            chars: input.chars(),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum LiteralType {
@@ -61,7 +35,57 @@ pub enum LexerMode {
     Operator,
 }
 
-impl SourceCursor<'_> {
+pub struct SourceCursor<T: BufRead> {
+    lines: Lines<T>,
+}
+
+pub struct Line<'a> {
+    chars: Chars<'a>,
+}
+
+impl<T: BufRead> SourceCursor<T> {
+    pub fn new(input: T) -> Self {
+        Self {
+            lines: input.lines(),
+        }
+    }
+
+    pub fn tokenize_line(&mut self) -> Option<Vec<Token>> {
+        self.lines.next().map(|l| {
+            let str = l.unwrap();
+            let mut line = Line::new(&str);
+
+            let mut tokens: Vec<Token> = std::iter::from_fn(move || line.advance_token()).collect();
+            tokens.reverse();
+
+            tokens
+        })
+    }
+}
+
+impl<'a> Line<'a> {
+    fn new(input: &'a str) -> Self {
+        Self {
+            chars: input.chars(),
+        }
+    }
+
+    fn consume(&mut self) -> Option<char> {
+        self.chars.next()
+    }
+
+    fn first(&self) -> Option<char> {
+        self.chars.clone().next()
+    }
+
+    fn second(&self) -> Option<char> {
+        let mut chars = self.chars.clone();
+
+        chars.next();
+
+        chars.next()
+    }
+
     fn discard_whitespaces(&mut self) {
         while self.first().is_some_and(|c| c.is_whitespace()) {
             self.consume();
@@ -69,19 +93,12 @@ impl SourceCursor<'_> {
     }
 
     pub fn advance_token(&mut self) -> Option<Token> {
-        if self.first().is_some_and(|c| c == '\n') {
-            return Some(Token {
-                token_type: TokenType::SyntaxToken,
-                content: self.consume().unwrap().to_string(),
-            });
-        }
-
         self.discard_whitespaces();
 
         let mut token_content = String::new();
 
         let mode = match self.first()? {
-            c if c.is_alphabetic() => LexerMode::Identifier,
+            c if c.is_alphabetic() || c == '_' => LexerMode::Identifier,
             c if c.is_ascii_digit() => LexerMode::Number,
             c if c == '"' => {
                 self.consume();
@@ -102,7 +119,7 @@ impl SourceCursor<'_> {
         while let Some(c) = self.first() {
             match mode {
                 LexerMode::Identifier => {
-                    if c.is_alphabetic() {
+                    if c.is_alphabetic() || c == '_' {
                         token_content.push(c);
                         self.consume();
                     } else {
@@ -148,7 +165,16 @@ impl SourceCursor<'_> {
                 }
             }
         }
+        let token_type = match mode {
+            LexerMode::Identifier => TokenType::Identifier,
+            LexerMode::Literal => TokenType::Literal(LiteralType::String),
+            LexerMode::Number => TokenType::Literal(LiteralType::Number),
+            LexerMode::Operator => TokenType::Operator,
+        };
 
-        None
+        Some(Token {
+            token_type,
+            content: token_content,
+        })
     }
 }

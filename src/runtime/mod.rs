@@ -4,12 +4,15 @@ pub mod operation;
 
 use std::collections::HashMap;
 
-use crate::parser::{Expr, Number};
+use crate::{
+    library,
+    parser::{Expr, Number},
+};
 
 use self::operation::{operate, Modifier, Operation, Operator};
 
 pub struct Runtime {
-    variables: HashMap<String, Array>,
+    variables: HashMap<String, Value>,
 }
 
 impl Runtime {
@@ -19,15 +22,19 @@ impl Runtime {
         }
     }
 
-    pub fn eval_expr(&mut self, expr: Expr) -> Value {
+    pub fn push_var(&mut self, name: &str, val: Value) {
+        self.variables.insert(name.to_owned(), val);
+    }
+
+    pub fn eval_expr(&mut self, expr: Expr, body_args: Option<&Array>) -> Value {
         match expr {
             Expr::Binary(op, lhs, rhs) => {
                 let op = Operation {
                     operator: Operator::from_str(&op.name).unwrap(),
                     modifier: op.modifiers,
                 };
-                let lhs = self.eval_expr(*lhs);
-                let rhs = self.eval_expr(*rhs);
+                let lhs = self.eval_expr(*lhs, body_args);
+                let rhs = self.eval_expr(*rhs, body_args);
 
                 apply(op, lhs, rhs)
             }
@@ -36,39 +43,43 @@ impl Runtime {
                     operator: Operator::from_str(&op.name).unwrap(),
                     modifier: op.modifiers,
                 };
-                let val = self.eval_expr(*val);
+                let val = self.eval_expr(*val, body_args);
 
                 apply_unary(op, val)
             }
-            Expr::Variable(var) => {
-                todo!()
-            }
+            Expr::Variable(var) => self.variables.get(&var.name).unwrap().clone(),
             Expr::Number(i) => Value::Number(i),
             Expr::Array(arr) => Value::Array(Array {
-                value: arr.into_iter().map(|e| self.eval_expr(e)).collect(),
+                value: arr
+                    .into_iter()
+                    .map(|e| self.eval_expr(e, body_args))
+                    .collect(),
             }),
-            Expr::Function(ident, args) => {
-                let args = self.eval_expr(*args);
-                if ident.name == "idx" {
-                    if let Value::Array(mut arr) = args {
-                        arr.value.iter_mut().enumerate().for_each(|(i, n)| {
-                            match n {
-                                Value::Array(arr) => (),
-                                Value::Number(num) => {
-                                    if num.value != 0 {
-                                        num.value = i as isize;
-                                    }
-                                },
-                            };
-                        });
-                        Value::Array(arr)
-                    } else {
-                        args
+            Expr::Call(function, args) => match *function {
+                Expr::Function(ident) => {
+                    let args = self.eval_expr(*args, body_args);
+
+                    match ident.name.as_str() {
+                        "idx" => library::index(args),
+                        _ => panic!()
                     }
-                } else {
+                }
+                Expr::Lambda(lambda) => {
+                    let args = self.eval_expr(*args, body_args);
+                    self.eval_expr(*lambda.body, Some(&args.into_array()))
+                }
+                _ => {
                     todo!()
                 }
             },
+            Expr::Argument(arg) => {
+                if let Some(arg_env) = body_args {
+                    arg_env.value[arg.index].clone()
+                } else {
+                    panic!()
+                }
+            }
+            _ => panic!(),
         }
     }
 }
@@ -82,6 +93,16 @@ pub struct Array {
 pub enum Value {
     Array(Array),
     Number(Number),
+}
+
+impl Value {
+    fn into_array(self) -> Array {
+        if let Value::Array(array) = self {
+            array
+        } else {
+            Array { value: vec![self] }
+        }
+    }
 }
 
 fn apply(op: Operation, lhs: Value, rhs: Value) -> Value {
