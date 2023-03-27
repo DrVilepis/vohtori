@@ -3,10 +3,10 @@ use crate::{
     runtime::operation::Modifier,
 };
 
-mod tokenstream;
 mod error;
-pub use tokenstream::*;
+mod tokenstream;
 use error::InvalidTokenTypeError;
+pub use tokenstream::*;
 
 #[derive(Debug)]
 pub struct Operator {
@@ -53,7 +53,7 @@ impl<'a> Parser<'a> {
         if self.expect(TokenType::Operator) {
             let op = self.parse_operator();
             let rhs = self.parse_expr();
-            return Expr::Binary(op, box lhs, box rhs);
+            return Expr::Binary(op, Box::new(lhs), Box::new(rhs));
         }
 
         if self.expect_with_content(TokenType::SyntaxToken, "\n") {
@@ -92,12 +92,12 @@ impl<'a> Parser<'a> {
             let op = self.parse_operator();
             let expr = self.parse_expr();
 
-            return Expr::Unary(op, box expr);
+            return Expr::Unary(op, Box::new(expr));
         } else if self.expect_with_content(TokenType::SyntaxToken, "$") {
             self.consume();
             let name = self.parse_identifier().unwrap();
             let arg = self.parse_term();
-            return Expr::Function(name, box arg)
+            return Expr::Function(name, Box::new(arg));
         }
         panic!("Valid token not found");
     }
