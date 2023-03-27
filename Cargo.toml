@@ -1,0 +1,8 @@
+[package]
+name = "vohtori"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bitflags = "2.0.1"
+clap = { version = "4.1.11", features = ["derive"] }
