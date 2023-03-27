@@ -1,4 +1,4 @@
-#![feature(result_option_inspect, is_some_and, box_syntax, bigint_helper_methods)]
+#![feature(result_option_inspect, is_some_and, bigint_helper_methods)]
 
 #[cfg(test)]
 mod tests;
